@@ -581,7 +581,7 @@ static void kvmppc_start_thread(struct kvm_vcpu *vcpu)
 	tpaca->kvm_hstate.kvm_vcpu = vcpu;
 	tpaca->kvm_hstate.kvm_vcore = vc;
 	smp_wmb();
-#ifdef CONFIG_PPC_ICP_NATIVE
+#if defined(CONFIG_PPC_ICP_NATIVE) && defined(CONFIG_SMP)
 	if (vcpu->arch.ptid) {
 		tpaca->cpu_start = 0x80;
 		tpaca->kvm_hstate.in_guest = KVM_GUEST_MODE_GUEST;
