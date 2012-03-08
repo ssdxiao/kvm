@@ -524,3 +524,10 @@ Files:	arch/arm/mach-at91/at91cap9.c
 Why:	The code is not actively maintained and platforms are now hard to find.
 Who:	Nicolas Ferre <nicolas.ferre@atmel.com>
 	Jean-Christophe PLAGNIOL-VILLARD <plagnioj@jcrosoft.com>
+
+----------------------------
+
+What:	KVM debugfs statistics
+When:	2013
+Why:	KVM tracepoints provide mostly equivalent information in a much more
+        flexible fashion.
