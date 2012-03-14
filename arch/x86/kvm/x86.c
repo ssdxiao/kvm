@@ -1042,7 +1042,8 @@ void kvm_write_tsc(struct kvm_vcpu *vcpu, u64 data)
 	    : "=A"(usdiff)
 	    : "A"(usdiff * 1000), "rm"(vcpu->arch.virtual_tsc_khz));
 #endif
-	usdiff -= elapsed / 1000;
+	do_div(elapsed, 1000);
+	usdiff -= elapsed;
 	if (usdiff < 0)
 		usdiff = -usdiff;
 
