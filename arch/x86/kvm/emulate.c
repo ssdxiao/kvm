@@ -2929,6 +2929,12 @@ static int em_movdqu(struct x86_emulate_ctxt *ctxt)
 	return X86EMUL_CONTINUE;
 }
 
+static int em_movq(struct x86_emulate_ctxt *ctxt)
+{
+	ctxt->dst.mm_val = ctxt->src.mm_val;
+	return X86EMUL_CONTINUE;
+}
+
 static int em_invlpg(struct x86_emulate_ctxt *ctxt)
 {
 	int rc;
@@ -3468,7 +3474,7 @@ static struct opcode group11[] = {
 };
 
 static struct gprefix pfx_0f_6f_0f_7f = {
-	N, N, N, I(Sse, em_movdqu),
+	I(Mmx, em_movq), N, N, I(Sse, em_movdqu),
 };
 
 static struct opcode opcode_table[256] = {
