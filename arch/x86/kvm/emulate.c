@@ -142,6 +142,7 @@
 #define Src2FS      (OpFS << Src2Shift)
 #define Src2GS      (OpGS << Src2Shift)
 #define Src2Mask    (OpMask << Src2Shift)
+#define Mmx         (1ull<<40)     /* MMX Vector instruction */
 
 #define X2(x...) x, x
 #define X3(x...) X2(x), x
@@ -859,6 +860,40 @@ static void write_sse_reg(struct x86_emulate_ctxt *ctxt, sse128_t *data,
 	ctxt->ops->put_fpu(ctxt);
 }
 
+static void read_mmx_reg(struct x86_emulate_ctxt *ctxt, u64 *data, int reg)
+{
+	ctxt->ops->get_fpu(ctxt);
+	switch (reg) {
+	case 0: asm("movq %%mm0, %0" : "=m"(*data)); break;
+	case 1: asm("movq %%mm1, %0" : "=m"(*data)); break;
+	case 2: asm("movq %%mm2, %0" : "=m"(*data)); break;
+	case 3: asm("movq %%mm3, %0" : "=m"(*data)); break;
+	case 4: asm("movq %%mm4, %0" : "=m"(*data)); break;
+	case 5: asm("movq %%mm5, %0" : "=m"(*data)); break;
+	case 6: asm("movq %%mm6, %0" : "=m"(*data)); break;
+	case 7: asm("movq %%mm7, %0" : "=m"(*data)); break;
+	default: BUG();
+	}
+	ctxt->ops->put_fpu(ctxt);
+}
+
+static void write_mmx_reg(struct x86_emulate_ctxt *ctxt, u64 *data, int reg)
+{
+	ctxt->ops->get_fpu(ctxt);
+	switch (reg) {
+	case 0: asm("movq %0, %%mm0" : : "m"(*data)); break;
+	case 1: asm("movq %0, %%mm1" : : "m"(*data)); break;
+	case 2: asm("movq %0, %%mm2" : : "m"(*data)); break;
+	case 3: asm("movq %0, %%mm3" : : "m"(*data)); break;
+	case 4: asm("movq %0, %%mm4" : : "m"(*data)); break;
+	case 5: asm("movq %0, %%mm5" : : "m"(*data)); break;
+	case 6: asm("movq %0, %%mm6" : : "m"(*data)); break;
+	case 7: asm("movq %0, %%mm7" : : "m"(*data)); break;
+	default: BUG();
+	}
+	ctxt->ops->put_fpu(ctxt);
+}
+
 static void decode_register_operand(struct x86_emulate_ctxt *ctxt,
 				    struct operand *op)
 {
@@ -873,6 +908,14 @@ static void decode_register_operand(struct x86_emulate_ctxt *ctxt,
 		op->bytes = 16;
 		op->addr.xmm = reg;
 		read_sse_reg(ctxt, &op->vec_val, reg);
+		return;
+	}
+	if (ctxt->d & Mmx) {
+		reg &= 7;
+		op->type = OP_MM;
+		op->bytes = 8;
+		op->addr.mm = reg;
+		read_mmx_reg(ctxt, &op->mm_val, reg);
 		return;
 	}
 
@@ -918,6 +961,13 @@ static int decode_modrm(struct x86_emulate_ctxt *ctxt,
 			op->bytes = 16;
 			op->addr.xmm = ctxt->modrm_rm;
 			read_sse_reg(ctxt, &op->vec_val, ctxt->modrm_rm);
+			return rc;
+		}
+		if (ctxt->d & Mmx) {
+			op->type = OP_MM;
+			op->bytes = 8;
+			op->addr.xmm = ctxt->modrm_rm & 7;
+			read_mmx_reg(ctxt, &op->mm_val, ctxt->modrm_rm);
 			return rc;
 		}
 		fetch_register_operand(op);
@@ -1386,6 +1436,9 @@ static int writeback(struct x86_emulate_ctxt *ctxt)
 		break;
 	case OP_XMM:
 		write_sse_reg(ctxt, &ctxt->dst.vec_val, ctxt->dst.addr.xmm);
+		break;
+	case OP_MM:
+		write_mmx_reg(ctxt, &ctxt->dst.mm_val, ctxt->dst.addr.mm);
 		break;
 	case OP_NONE:
 		/* no writeback */
@@ -3960,6 +4013,8 @@ done_prefixes:
 
 	if (ctxt->d & Sse)
 		ctxt->op_bytes = 16;
+	else if (ctxt->d & Mmx)
+		ctxt->op_bytes = 8;
 
 	/* ModRM and SIB bytes. */
 	if (ctxt->d & ModRM) {
@@ -4030,6 +4085,28 @@ static bool string_insn_completed(struct x86_emulate_ctxt *ctxt)
 	return false;
 }
 
+static int flush_pending_x87_faults(struct x86_emulate_ctxt *ctxt)
+{
+	bool fault = false;
+
+	ctxt->ops->get_fpu(ctxt);
+	asm volatile("1: fwait \n\t"
+		     "2: \n\t"
+		     ".pushsection .fixup,\"ax\" \n\t"
+		     "3: \n\t"
+		     "movb $1, %[fault] \n\t"
+		     "jmp 2b \n\t"
+		     ".popsection \n\t"
+		     _ASM_EXTABLE(1b, 3b)
+		     : [fault]"=rm"(fault));
+	ctxt->ops->put_fpu(ctxt);
+
+	if (unlikely(fault))
+		return emulate_exception(ctxt, MF_VECTOR, 0, false);
+
+	return X86EMUL_CONTINUE;
+}
+
 int x86_emulate_insn(struct x86_emulate_ctxt *ctxt)
 {
 	struct x86_emulate_ops *ops = ctxt->ops;
@@ -4054,16 +4131,21 @@ int x86_emulate_insn(struct x86_emulate_ctxt *ctxt)
 		goto done;
 	}
 
-	if ((ctxt->d & Sse)
-	    && ((ops->get_cr(ctxt, 0) & X86_CR0_EM)
-		|| !(ops->get_cr(ctxt, 4) & X86_CR4_OSFXSR))) {
+	if ((ctxt->d & (Sse|Mmx)) && ((ops->get_cr(ctxt, 0) & X86_CR0_EM))
+	    || (ctxt->d & Sse) && !(ops->get_cr(ctxt, 4) & X86_CR4_OSFXSR)) {
 		rc = emulate_ud(ctxt);
 		goto done;
 	}
 
-	if ((ctxt->d & Sse) && (ops->get_cr(ctxt, 0) & X86_CR0_TS)) {
+	if ((ctxt->d & (Sse|Mmx)) && (ops->get_cr(ctxt, 0) & X86_CR0_TS)) {
 		rc = emulate_nm(ctxt);
 		goto done;
+	}
+
+	if (ctxt->d & Mmx) {
+		rc = flush_pending_x87_faults(ctxt);
+		if (rc != X86EMUL_CONTINUE)
+			return rc;
 	}
 
 	if (unlikely(ctxt->guest_mode) && ctxt->intercept) {
