@@ -20,6 +20,7 @@
 #include <asm/xcr.h>
 #include <asm/suspend.h>
 #include <asm/debugreg.h>
+#include <asm/fpu-internal.h> /* pcntxt_mask */
 
 #ifdef CONFIG_X86_32
 static struct saved_context saved_context;
@@ -231,6 +232,7 @@ static void __restore_processor_state(struct saved_context *ctxt)
 /* Needed by apm.c */
 void restore_processor_state(void)
 {
+	x86_platform.restore_sched_clock_state();
 	__restore_processor_state(&saved_context);
 }
 #ifdef CONFIG_X86_32

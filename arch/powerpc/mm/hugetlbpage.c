@@ -312,7 +312,8 @@ void __init reserve_hugetlb_gpages(void)
 	int i;
 
 	strlcpy(cmdline, boot_command_line, COMMAND_LINE_SIZE);
-	parse_args("hugetlb gpages", cmdline, NULL, 0, &do_gpage_early_setup);
+	parse_args("hugetlb gpages", cmdline, NULL, 0, 0, 0,
+			&do_gpage_early_setup);
 
 	/*
 	 * Walk gpage list in reverse, allocating larger page sizes first.
@@ -912,9 +913,9 @@ void flush_dcache_icache_hugepage(struct page *page)
 		if (!PageHighMem(page)) {
 			__flush_dcache_icache(page_address(page+i));
 		} else {
-			start = kmap_atomic(page+i, KM_PPC_SYNC_ICACHE);
+			start = kmap_atomic(page+i);
 			__flush_dcache_icache(start);
-			kunmap_atomic(start, KM_PPC_SYNC_ICACHE);
+			kunmap_atomic(start);
 		}
 	}
 }

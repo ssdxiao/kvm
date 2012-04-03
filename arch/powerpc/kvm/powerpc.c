@@ -598,6 +598,21 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	return r;
 }
 
+void kvm_vcpu_kick(struct kvm_vcpu *vcpu)
+{
+	int me;
+	int cpu = vcpu->cpu;
+
+	me = get_cpu();
+	if (waitqueue_active(vcpu->arch.wqp)) {
+		wake_up_interruptible(vcpu->arch.wqp);
+		vcpu->stat.halt_wakeup++;
+	} else if (cpu != me && cpu != -1) {
+		smp_send_reschedule(vcpu->cpu);
+	}
+	put_cpu();
+}
+
 int kvm_vcpu_ioctl_interrupt(struct kvm_vcpu *vcpu, struct kvm_interrupt *irq)
 {
 	if (irq->irq == KVM_INTERRUPT_UNSET) {

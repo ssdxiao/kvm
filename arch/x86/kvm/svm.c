@@ -29,6 +29,7 @@
 #include <linux/ftrace_event.h>
 #include <linux/slab.h>
 
+#include <asm/perf_event.h>
 #include <asm/tlbflush.h>
 #include <asm/desc.h>
 #include <asm/kvm_para.h>
@@ -604,6 +605,8 @@ static void svm_hardware_disable(void *garbage)
 		wrmsrl(MSR_AMD64_TSC_RATIO, TSC_RATIO_DEFAULT);
 
 	cpu_svm_disable();
+
+	amd_pmu_disable_virt();
 }
 
 static int svm_hardware_enable(void *garbage)
@@ -680,6 +683,8 @@ static int svm_hardware_enable(void *garbage)
 		osvw_status = osvw_len = 0;
 
 	svm_init_erratum_383();
+
+	amd_pmu_enable_virt();
 
 	return 0;
 }
