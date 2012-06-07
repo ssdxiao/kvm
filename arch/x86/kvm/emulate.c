@@ -1325,7 +1325,9 @@ static int load_segment_descriptor(struct x86_emulate_ctxt *ctxt,
 	}
 
 	/* NULL selector is not valid for TR, CS and SS */
-	if ((seg == VCPU_SREG_CS || seg == VCPU_SREG_SS || seg == VCPU_SREG_TR)
+	if ((seg == VCPU_SREG_CS
+	     || (seg == VCPU_SREG_SS && ctxt->mode != X86EMUL_MODE_PROT64)
+	     || seg == VCPU_SREG_TR)
 	    && null_selector)
 		goto exception;
 
