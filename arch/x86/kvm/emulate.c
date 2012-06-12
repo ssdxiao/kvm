@@ -1578,6 +1578,29 @@ static int em_popf(struct x86_emulate_ctxt *ctxt)
 	return emulate_popf(ctxt, &ctxt->dst.val, ctxt->op_bytes);
 }
 
+static int em_enter(struct x86_emulate_ctxt *ctxt)
+{
+	int rc;
+	unsigned frame_size = ctxt->src.val;
+	unsigned nesting_level = ctxt->src2.val & 31;
+
+	if (nesting_level)
+		return X86EMUL_UNHANDLEABLE;
+
+	ctxt->src.type = OP_REG;
+	ctxt->src.val = ctxt->regs[VCPU_REGS_RBP];
+	ctxt->src.bytes = (fls(stack_mask(ctxt)) + 1) >> 3;
+	rc = em_push(ctxt);
+	if (rc != X86EMUL_CONTINUE)
+		return rc;
+	assign_masked(&ctxt->regs[VCPU_REGS_RBP], ctxt->regs[VCPU_REGS_RSP],
+		      stack_mask(ctxt));
+	assign_masked(&ctxt->regs[VCPU_REGS_RSP],
+		      ctxt->regs[VCPU_REGS_RSP] - frame_size,
+		      stack_mask(ctxt));
+	return X86EMUL_CONTINUE;
+}
+
 static int em_leave(struct x86_emulate_ctxt *ctxt)
 {
 	assign_masked(&ctxt->regs[VCPU_REGS_RSP], ctxt->regs[VCPU_REGS_RBP],
@@ -3643,7 +3666,8 @@ static struct opcode opcode_table[256] = {
 	I(DstReg | SrcMemFAddr | ModRM | No64 | Src2DS, em_lseg),
 	G(ByteOp, group11), G(0, group11),
 	/* 0xC8 - 0xCF */
-	N, I(Stack, em_leave), N, I(ImplicitOps | Stack, em_ret_far),
+	I(Stack | SrcImmU16 | Src2ImmByte, em_enter), I(Stack, em_leave),
+	N, I(ImplicitOps | Stack, em_ret_far),
 	D(ImplicitOps), DI(SrcImmByte, intn),
 	D(ImplicitOps | No64), II(ImplicitOps, em_iret, iret),
 	/* 0xD0 - 0xD7 */
