@@ -3493,6 +3493,7 @@ static bool guest_state_valid(struct kvm_vcpu *vcpu)
 			return false;
 		if (!rmode_segment_valid(vcpu, VCPU_SREG_GS))
 			return false;
+		return false;
 	} else {
 	/* protected mode guest state checks */
 		if (!cs_ss_rpl_check(vcpu))
