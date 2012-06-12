@@ -454,6 +454,11 @@ static ulong stack_mask(struct x86_emulate_ctxt *ctxt)
 	return ~0U >> ((ss.d ^ 1) * 16);  /* d=0: 0xffff; d=1: 0xffffffff */
 }
 
+static int stack_size(struct x86_emulate_ctxt *ctxt)
+{
+	return fls(stack_mask(ctxt)) >> 3;
+}
+
 /* Access/update address held in a register, based on addressing mode. */
 static inline unsigned long
 address_mask(struct x86_emulate_ctxt *ctxt, unsigned long reg)
@@ -1592,10 +1597,7 @@ static int em_enter(struct x86_emulate_ctxt *ctxt)
 	if (nesting_level)
 		return X86EMUL_UNHANDLEABLE;
 
-	ctxt->src.type = OP_REG;
-	ctxt->src.val = ctxt->regs[VCPU_REGS_RBP];
-	ctxt->src.bytes = (fls(stack_mask(ctxt)) + 1) >> 3;
-	rc = em_push(ctxt);
+	rc = push(ctxt, &ctxt->regs[VCPU_REGS_RBP], stack_size(ctxt));
 	if (rc != X86EMUL_CONTINUE)
 		return rc;
 	assign_masked(&ctxt->regs[VCPU_REGS_RBP], ctxt->regs[VCPU_REGS_RSP],
