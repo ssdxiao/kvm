@@ -4279,6 +4279,71 @@ static const struct read_write_emulator_ops write_emultor = {
 	.write = true,
 };
 
+static int emulator_memory_prepare(struct x86_emulate_ctxt *ctxt,
+				   unsigned long addr,
+				   unsigned int bytes,
+				   struct x86_exception *exception,
+				   bool write,
+				   void **p_opaque,
+				   unsigned long *p_hva)
+{
+	struct kvm_vcpu *vcpu = emul_to_vcpu(ctxt);
+	struct kvm_memory_slot *memslot;
+	int ret;
+	gpa_t gpa;
+	gfn_t gfn;
+	unsigned long hva;
+	
+	if (unlikely(((addr + bytes - 1) ^ addr) & PAGE_MASK))
+		goto no_hva;
+
+	ret = vcpu_mmio_gva_to_gpa(vcpu, addr, &gpa, exception, true);
+	if (ret != 0) {
+		if (ret < 0)
+			return X86EMUL_PROPAGATE_FAULT;
+		goto no_hva;
+	}
+
+	/* A (heavily) simplified version of kvm_gfn_to_hva_cache_init.  */
+	gfn = gpa >> PAGE_SHIFT;
+	memslot = gfn_to_memslot(vcpu->kvm, gfn);
+	if (!memslot)
+		goto no_hva;
+
+	if (write) {
+		if (memslot_is_readonly(memslot))
+			goto no_hva;
+
+		*p_opaque = memslot->dirty_bitmap ? memslot : NULL;
+	}
+
+	hva = __gfn_to_hva_memslot(memslot, gfn);
+	if (kvm_is_error_hva(hva))
+		goto no_hva;
+
+	*p_hva = hva + offset_in_page(gpa);
+	return X86EMUL_CONTINUE;
+
+no_hva:
+	*p_hva = KVM_HVA_ERR_BAD;
+	return X86EMUL_CONTINUE;
+}
+
+static void emulator_memory_finish(struct x86_emulate_ctxt *ctxt,
+				   void *opaque,
+				   unsigned long hva)
+{
+	struct kvm_memory_slot *memslot;
+	gfn_t gfn;
+
+	if (!opaque)
+		return;
+
+	memslot = opaque;
+	gfn = hva_to_gfn_memslot(hva, memslot);
+	mark_page_dirty_in_slot(memslot, gfn);
+}
+
 static int emulator_read_write_onepage(unsigned long addr, void *val,
 				       unsigned int bytes,
 				       struct x86_exception *exception,
@@ -4823,6 +4888,8 @@ static const struct x86_emulate_ops emulate_ops = {
 	.read_std            = kvm_read_guest_virt_system,
 	.write_std           = kvm_write_guest_virt_system,
 	.fetch               = kvm_fetch_guest_virt,
+	.memory_prepare      = emulator_memory_prepare,
+	.memory_finish       = emulator_memory_finish,
 	.read_emulated       = emulator_read_emulated,
 	.write_emulated      = emulator_write_emulated,
 	.cmpxchg_emulated    = emulator_cmpxchg_emulated,

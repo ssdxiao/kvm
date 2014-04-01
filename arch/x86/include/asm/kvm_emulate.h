@@ -167,6 +167,32 @@ struct x86_emulate_ops {
 				const void *new,
 				unsigned int bytes,
 				struct x86_exception *fault);
+
+	/*
+	 * memory_prepare: Prepare userspace access fastpath.
+	 *   @addr:     [IN ] Linear address to access.
+	 *   @bytes:    [IN ] Number of bytes to access.
+	 *   @write:    [IN ] True if *p_hva will be written to.
+	 *   @p_opaque: [OUT] Value passed back to memory_finish.
+	 *   @p_hva:    [OUT] Host virtual address for __copy_from/to_user.
+	 */
+	int (*memory_prepare)(struct x86_emulate_ctxt *ctxt,
+			      unsigned long addr,
+			      unsigned int bytes,
+			      struct x86_exception *exception,
+			      bool write,
+			      void **p_opaque,
+			      unsigned long *p_hva);
+
+	/*
+	 * memory_finish: Complete userspace access fastpath.
+	 *   @opaque: [OUT] Value passed back from memory_prepare.
+	 *   @hva:    [OUT] Host virtual address computed in memory_prepare.
+	 */
+	void (*memory_finish)(struct x86_emulate_ctxt *ctxt,
+			      void *p_opaque,
+			      unsigned long p_hva);
+
 	void (*invlpg)(struct x86_emulate_ctxt *ctxt, ulong addr);
 
 	int (*pio_in_emulated)(struct x86_emulate_ctxt *ctxt,

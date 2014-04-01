@@ -842,6 +842,11 @@ search_memslots(struct kvm_memslots *slots, gfn_t gfn)
 	return NULL;
 }
 
+static inline bool memslot_is_readonly(struct kvm_memory_slot *slot)
+{
+	return slot->flags & KVM_MEM_READONLY;
+}
+
 static inline struct kvm_memory_slot *
 __gfn_to_memslot(struct kvm_memslots *slots, gfn_t gfn)
 {
