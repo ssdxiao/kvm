@@ -263,6 +263,8 @@ struct operand {
 		u64 mm_val;
 		void *data;
 	};
+	unsigned long hva;
+	void *opaque;
 };
 
 struct fetch_cache {

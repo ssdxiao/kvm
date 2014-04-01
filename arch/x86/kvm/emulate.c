@@ -1260,6 +1260,29 @@ read_cached:
 	return X86EMUL_CONTINUE;
 }
 
+static int read_from_user(struct x86_emulate_ctxt *ctxt,
+			  unsigned long hva, void *dest, unsigned size)
+{
+	int rc;
+	struct read_cache *mc = &ctxt->mem_read;
+
+	if (mc->pos < mc->end)
+		goto read_cached;
+
+	WARN_ON((mc->end + size) >= sizeof(mc->data));
+
+	rc = __copy_from_user(mc->data + mc->end, (void __user *)hva, size);
+	if (rc < 0)
+		return X86EMUL_UNHANDLEABLE;
+
+	mc->end += size;
+
+read_cached:
+	memcpy(dest, mc->data + mc->pos, size);
+	mc->pos += size;
+	return X86EMUL_CONTINUE;
+}
+
 static int segmented_read(struct x86_emulate_ctxt *ctxt,
 			  struct segmented_address addr,
 			  void *data,
@@ -1565,9 +1588,36 @@ static int load_segment_descriptor(struct x86_emulate_ctxt *ctxt,
 }
 
 static int prepare_memory_operand(struct x86_emulate_ctxt *ctxt,
-				  struct operand *op)
+				  struct operand *op,
+				  bool write)
 {
-	return segmented_read(ctxt, op->addr.mem, &op->val, op->bytes);
+	int rc;
+	unsigned long gva;
+	unsigned int size = op->bytes;
+
+	rc = linearize(ctxt, op->addr.mem, size, write, &gva);
+	if (rc != X86EMUL_CONTINUE)
+		return rc;
+
+	rc = ctxt->ops->memory_prepare(ctxt, gva, size,
+					&ctxt->exception, true,
+					&op->opaque, &op->hva);
+	if (rc != X86EMUL_CONTINUE)
+		return rc;
+
+	if (likely(!kvm_is_error_hva(op->hva))) {
+		rc = read_from_user(ctxt, op->hva, &op->val, size);
+		if (!write)
+			ctxt->ops->memory_finish(ctxt, op->opaque, op->hva);
+
+		if (likely(rc == X86EMUL_CONTINUE))
+			return X86EMUL_CONTINUE;
+
+		/* Should not happen.  */
+		op->hva = KVM_HVA_ERR_BAD;
+	}
+
+	return read_emulated(ctxt, gva, &op->val, size);
 }
 
 static int cmpxchg_memory_operand(struct x86_emulate_ctxt *ctxt,
@@ -1582,6 +1632,17 @@ static int cmpxchg_memory_operand(struct x86_emulate_ctxt *ctxt,
 static int write_memory_operand(struct x86_emulate_ctxt *ctxt,
 				struct operand *op)
 {
+	int rc;
+
+	if (likely(!kvm_is_error_hva(op->hva))) {
+		rc = __copy_to_user((void __user *)op->hva, &op->val,
+				    op->bytes);
+		ctxt->ops->memory_finish(ctxt, op->opaque, op->hva);
+
+		if (likely(!rc))
+			return X86EMUL_CONTINUE;
+	}
+
 	return segmented_write(ctxt, op->addr.mem,
 			       &op->val,
 			       op->bytes);
@@ -4638,14 +4699,14 @@ int x86_emulate_insn(struct x86_emulate_ctxt *ctxt)
 	}
 
 	if ((ctxt->src.type == OP_MEM) && !(ctxt->d & NoAccess)) {
-		rc = prepare_memory_operand(ctxt, &ctxt->src);
+		rc = prepare_memory_operand(ctxt, &ctxt->src, false);
 		if (rc != X86EMUL_CONTINUE)
 			goto done;
 		ctxt->src.orig_val64 = ctxt->src.val64;
 	}
 
 	if (ctxt->src2.type == OP_MEM) {
-		rc = prepare_memory_operand(ctxt, &ctxt->src2);
+		rc = prepare_memory_operand(ctxt, &ctxt->src2, false);
 		if (rc != X86EMUL_CONTINUE)
 			goto done;
 	}
@@ -4656,7 +4717,8 @@ int x86_emulate_insn(struct x86_emulate_ctxt *ctxt)
 
 	if ((ctxt->dst.type == OP_MEM) && !(ctxt->d & Mov)) {
 		/* optimisation - avoid slow emulated read if Mov */
-		rc = prepare_memory_operand(ctxt, &ctxt->dst);
+		rc = prepare_memory_operand(ctxt, &ctxt->dst,
+					    !(ctxt->d & NoWrite));
 		if (rc != X86EMUL_CONTINUE)
 			goto done;
 	}
