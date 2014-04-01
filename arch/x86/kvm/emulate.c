@@ -1589,7 +1589,7 @@ static int load_segment_descriptor(struct x86_emulate_ctxt *ctxt,
 
 static int prepare_memory_operand(struct x86_emulate_ctxt *ctxt,
 				  struct operand *op,
-				  bool write)
+				  bool read, bool write)
 {
 	int rc;
 	unsigned long gva;
@@ -1604,6 +1604,10 @@ static int prepare_memory_operand(struct x86_emulate_ctxt *ctxt,
 					&op->opaque, &op->hva);
 	if (rc != X86EMUL_CONTINUE)
 		return rc;
+
+	/* optimisation - avoid slow emulated read if Mov */
+	if (!read)
+		return X86EMUL_CONTINUE;
 
 	if (likely(!kvm_is_error_hva(op->hva))) {
 		rc = read_from_user(ctxt, op->hva, &op->val, size);
@@ -4699,14 +4703,14 @@ int x86_emulate_insn(struct x86_emulate_ctxt *ctxt)
 	}
 
 	if ((ctxt->src.type == OP_MEM) && !(ctxt->d & NoAccess)) {
-		rc = prepare_memory_operand(ctxt, &ctxt->src, false);
+		rc = prepare_memory_operand(ctxt, &ctxt->src, true, false);
 		if (rc != X86EMUL_CONTINUE)
 			goto done;
 		ctxt->src.orig_val64 = ctxt->src.val64;
 	}
 
 	if (ctxt->src2.type == OP_MEM) {
-		rc = prepare_memory_operand(ctxt, &ctxt->src2, false);
+		rc = prepare_memory_operand(ctxt, &ctxt->src2, true, false);
 		if (rc != X86EMUL_CONTINUE)
 			goto done;
 	}
@@ -4715,9 +4719,9 @@ int x86_emulate_insn(struct x86_emulate_ctxt *ctxt)
 		goto special_insn;
 
 
-	if ((ctxt->dst.type == OP_MEM) && !(ctxt->d & Mov)) {
-		/* optimisation - avoid slow emulated read if Mov */
+	if (ctxt->dst.type == OP_MEM) {
 		rc = prepare_memory_operand(ctxt, &ctxt->dst,
+					    !(ctxt->d & Mov),
 					    !(ctxt->d & NoWrite));
 		if (rc != X86EMUL_CONTINUE)
 			goto done;
