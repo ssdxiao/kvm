@@ -1564,6 +1564,29 @@ static int load_segment_descriptor(struct x86_emulate_ctxt *ctxt,
 	return __load_segment_descriptor(ctxt, selector, seg, cpl, false);
 }
 
+static int prepare_memory_operand(struct x86_emulate_ctxt *ctxt,
+				  struct operand *op)
+{
+	return segmented_read(ctxt, op->addr.mem, &op->val, op->bytes);
+}
+
+static int cmpxchg_memory_operand(struct x86_emulate_ctxt *ctxt,
+				  struct operand *op)
+{
+	return segmented_cmpxchg(ctxt, op->addr.mem,
+				 &op->orig_val,
+				 &op->val,
+				 op->bytes);
+}
+
+static int write_memory_operand(struct x86_emulate_ctxt *ctxt,
+				struct operand *op)
+{
+	return segmented_write(ctxt, op->addr.mem,
+			       &op->val,
+			       op->bytes);
+}
+
 static void write_register_operand(struct operand *op)
 {
 	/* The 4-byte case *is* correct: in 64-bit mode we zero-extend. */
@@ -1591,16 +1614,9 @@ static int writeback(struct x86_emulate_ctxt *ctxt, struct operand *op)
 		break;
 	case OP_MEM:
 		if (ctxt->lock_prefix)
-			return segmented_cmpxchg(ctxt,
-						 op->addr.mem,
-						 &op->orig_val,
-						 &op->val,
-						 op->bytes);
+			return cmpxchg_memory_operand(ctxt, op);
 		else
-			return segmented_write(ctxt,
-					       op->addr.mem,
-					       &op->val,
-					       op->bytes);
+			return write_memory_operand(ctxt, op);
 		break;
 	case OP_MEM_STR:
 		return segmented_write(ctxt,
@@ -4622,16 +4638,14 @@ int x86_emulate_insn(struct x86_emulate_ctxt *ctxt)
 	}
 
 	if ((ctxt->src.type == OP_MEM) && !(ctxt->d & NoAccess)) {
-		rc = segmented_read(ctxt, ctxt->src.addr.mem,
-				    ctxt->src.valptr, ctxt->src.bytes);
+		rc = prepare_memory_operand(ctxt, &ctxt->src);
 		if (rc != X86EMUL_CONTINUE)
 			goto done;
 		ctxt->src.orig_val64 = ctxt->src.val64;
 	}
 
 	if (ctxt->src2.type == OP_MEM) {
-		rc = segmented_read(ctxt, ctxt->src2.addr.mem,
-				    &ctxt->src2.val, ctxt->src2.bytes);
+		rc = prepare_memory_operand(ctxt, &ctxt->src2);
 		if (rc != X86EMUL_CONTINUE)
 			goto done;
 	}
@@ -4642,8 +4656,7 @@ int x86_emulate_insn(struct x86_emulate_ctxt *ctxt)
 
 	if ((ctxt->dst.type == OP_MEM) && !(ctxt->d & Mov)) {
 		/* optimisation - avoid slow emulated read if Mov */
-		rc = segmented_read(ctxt, ctxt->dst.addr.mem,
-				   &ctxt->dst.val, ctxt->dst.bytes);
+		rc = prepare_memory_operand(ctxt, &ctxt->dst);
 		if (rc != X86EMUL_CONTINUE)
 			goto done;
 	}
