@@ -269,8 +269,8 @@ struct operand {
 
 struct fetch_cache {
 	u8 data[15];
-	unsigned long start;
-	unsigned long end;
+	u8 *ptr;
+	u8 *end;
 };
 
 struct read_cache {
