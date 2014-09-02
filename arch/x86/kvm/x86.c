@@ -416,6 +416,16 @@ void kvm_propagate_fault(struct kvm_vcpu *vcpu, struct x86_exception *fault)
 		vcpu->arch.mmu.inject_page_fault(vcpu, fault);
 }
 
+static inline int kvm_propagate_or_intercepted(struct kvm_vcpu *vcpu,
+					       struct x86_exception *exception)
+{
+	if (likely(!exception->nested_page_fault))
+		return X86EMUL_PROPAGATE_FAULT;
+
+	vcpu->arch.mmu.inject_page_fault(vcpu, exception);
+	return X86EMUL_INTERCEPTED;
+}
+
 void kvm_inject_nmi(struct kvm_vcpu *vcpu)
 {
 	atomic_inc(&vcpu->arch.nmi_queued);
@@ -4122,7 +4132,7 @@ static int kvm_read_guest_virt_helper(gva_t addr, void *val, unsigned int bytes,
 		int ret;
 
 		if (gpa == UNMAPPED_GVA)
-			return X86EMUL_PROPAGATE_FAULT;
+			return kvm_propagate_or_intercepted(vcpu, exception);
 		ret = kvm_read_guest_page(vcpu->kvm, gpa >> PAGE_SHIFT, data,
 					  offset, toread);
 		if (ret < 0) {
@@ -4152,7 +4162,7 @@ static int kvm_fetch_guest_virt(struct x86_emulate_ctxt *ctxt,
 	gpa_t gpa = vcpu->arch.walk_mmu->gva_to_gpa(vcpu, addr, access|PFERR_FETCH_MASK,
 						    exception);
 	if (unlikely(gpa == UNMAPPED_GVA))
-		return X86EMUL_PROPAGATE_FAULT;
+		return kvm_propagate_or_intercepted(vcpu, exception);
 
 	offset = addr & (PAGE_SIZE-1);
 	if (WARN_ON(offset + bytes > PAGE_SIZE))
@@ -4203,7 +4213,7 @@ int kvm_write_guest_virt_system(struct x86_emulate_ctxt *ctxt,
 		int ret;
 
 		if (gpa == UNMAPPED_GVA)
-			return X86EMUL_PROPAGATE_FAULT;
+			return kvm_propagate_or_intercepted(vcpu, exception);
 		ret = kvm_write_guest(vcpu->kvm, gpa, data, towrite);
 		if (ret < 0) {
 			r = X86EMUL_IO_NEEDED;
@@ -4350,7 +4360,7 @@ static int emulator_read_write_onepage(unsigned long addr, void *val,
 	ret = vcpu_mmio_gva_to_gpa(vcpu, addr, &gpa, exception, write);
 
 	if (ret < 0)
-		return X86EMUL_PROPAGATE_FAULT;
+		return kvm_propagate_or_intercepted(vcpu, exception);
 
 	/* For APIC access vmexit */
 	if (ret)
