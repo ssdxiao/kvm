@@ -1974,10 +1974,28 @@ static void nested_svm_inject_npf_exit(struct kvm_vcpu *vcpu,
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
 
-	svm->vmcb->control.exit_code = SVM_EXIT_NPF;
-	svm->vmcb->control.exit_code_hi = 0;
-	svm->vmcb->control.exit_info_1 = fault->error_code;
-	svm->vmcb->control.exit_info_2 = fault->address;
+	/*
+	 * We can keep the value that the processor stored in the VMCB,
+	 * but make up something sensible if we hit the WARN.
+	 */
+	if (WARN_ON(svm->vmcb->control.exit_code != SVM_EXIT_NPF)) {
+		svm->vmcb->control.exit_code = SVM_EXIT_NPF;
+		svm->vmcb->control.exit_code_hi = 0;
+		svm->vmcb->control.exit_info_1 = (1ULL << 32);
+		svm->vmcb->control.exit_info_2 = fault->address;
+	}
+
+	/*
+	 * The present bit is always zero for page structure faults on real,
+	 * hardware, but we compute it as 1 in fault->error_code.  We can
+	 * just keep the original exit info for page structure faults---but
+	 * not for other faults, because the processor's error code might
+	 * be wrong if we have just created a shadow PTE.
+	 */
+	if (svm->vmcb->control.exit_info_1 & (1ULL << 32)) {
+		svm->vmcb->control.exit_info_1 &= ~0xffffffffULL;
+		svm->vmcb->control.exit_info_1 |= fault->error_code;
+	}
 
 	nested_svm_vmexit(svm);
 }

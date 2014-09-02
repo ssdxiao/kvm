@@ -322,8 +322,14 @@ retry_walk:
 
 		real_gfn = mmu->translate_gpa(vcpu, gfn_to_gpa(table_gfn),
 					      PFERR_USER_MASK|PFERR_WRITE_MASK);
+
+		/*
+		 * Can this happen (except if the guest is playing TOCTTOU games)?
+		 * We should have gotten a nested page fault on table_gfn instead.
+		 */
 		if (unlikely(real_gfn == UNMAPPED_GVA))
 			goto error;
+
 		real_gfn = gpa_to_gfn(real_gfn);
 
 		host_addr = gfn_to_hva_prot(vcpu->kvm, real_gfn,
