@@ -321,14 +321,15 @@ retry_walk:
 		walker->pte_gpa[walker->level - 1] = pte_gpa;
 
 		real_gfn = mmu->translate_gpa(vcpu, gfn_to_gpa(table_gfn),
-					      PFERR_USER_MASK|PFERR_WRITE_MASK);
+					      PFERR_USER_MASK|PFERR_WRITE_MASK,
+					      &walker->fault);
 
 		/*
 		 * Can this happen (except if the guest is playing TOCTTOU games)?
 		 * We should have gotten a nested page fault on table_gfn instead.
 		 */
 		if (unlikely(real_gfn == UNMAPPED_GVA))
-			goto error;
+			return 0;
 
 		real_gfn = gpa_to_gfn(real_gfn);
 
@@ -370,7 +371,7 @@ retry_walk:
 	if (PTTYPE == 32 && walker->level == PT_DIRECTORY_LEVEL && is_cpuid_PSE36())
 		gfn += pse36_gfn_delta(pte);
 
-	real_gpa = mmu->translate_gpa(vcpu, gfn_to_gpa(gfn), access);
+	real_gpa = mmu->translate_gpa(vcpu, gfn_to_gpa(gfn), access, &walker->fault);
 	if (real_gpa == UNMAPPED_GVA)
 		return 0;
 
