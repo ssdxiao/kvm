@@ -2504,7 +2504,7 @@ static void nested_vmx_setup_ctls_msrs(struct vcpu_vmx *vmx)
 	vmx->nested.nested_vmx_misc_low &= VMX_MISC_SAVE_EFER_LMA;
 	vmx->nested.nested_vmx_misc_low |=
 		VMX_MISC_EMULATED_PREEMPTION_TIMER_RATE |
-		VMX_MISC_ACTIVITY_HLT;
+		VMX_MISC_ACTIVITY_HLT | VMX_MISC_IA32_SMBASE_MSR;
 	vmx->nested.nested_vmx_misc_high = 0;
 }
 
