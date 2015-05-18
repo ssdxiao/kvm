@@ -5471,6 +5471,8 @@ static void kvm_smm_changed(struct kvm_vcpu *vcpu)
 			vcpu->arch.smi_pending = 0;
 		}
 	}
+
+	kvm_mmu_reset_context(vcpu);
 }
 
 static void kvm_set_hflags(struct kvm_vcpu *vcpu, unsigned emul_flags)
