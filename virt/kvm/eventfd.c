@@ -266,6 +266,13 @@ void __attribute__((weak)) kvm_arch_irq_bypass_start(
 				struct irq_bypass_consumer *cons)
 {
 }
+
+int  __attribute__((weak)) kvm_arch_update_irqfd_routing(
+				struct kvm *kvm, unsigned int host_irq,
+				uint32_t guest_irq, bool set)
+{
+	return 0;
+}
 #endif
 
 static int
@@ -582,12 +589,23 @@ kvm_irqfd_release(struct kvm *kvm)
  */
 void kvm_irq_routing_update(struct kvm *kvm)
 {
+	int ret;
 	struct kvm_kernel_irqfd *irqfd;
 
 	spin_lock_irq(&kvm->irqfds.lock);
 
-	list_for_each_entry(irqfd, &kvm->irqfds.items, list)
+	list_for_each_entry(irqfd, &kvm->irqfds.items, list) {
 		irqfd_update(kvm, irqfd);
+
+#ifdef CONFIG_HAVE_KVM_IRQ_BYPASS
+		if (irqfd->producer) {
+			ret = kvm_arch_update_irqfd_routing(
+					irqfd->kvm, irqfd->producer->irq,
+					irqfd->gsi, 1);
+			WARN_ON(ret);
+		}
+#endif
+	}
 
 	spin_unlock_irq(&kvm->irqfds.lock);
 }
